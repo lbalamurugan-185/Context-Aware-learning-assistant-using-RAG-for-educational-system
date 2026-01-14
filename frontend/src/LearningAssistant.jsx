@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import {
   ChevronDown,
-  ChevronUp,
   Sparkles,
   FileText,
   Brain,
@@ -9,6 +8,10 @@ import {
   Shield,
   Zap,
   AlertCircle,
+  Copy,
+  Download,
+  Moon,
+  Sun,
 } from "lucide-react";
 
 export default function LearningAssistant() {
@@ -18,36 +21,53 @@ export default function LearningAssistant() {
   const [confidence, setConfidence] = useState(0);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingStage, setLoadingStage] = useState("");
   const [hasAnswer, setHasAnswer] = useState(false);
   const [error, setError] = useState("");
   const [processingTime, setProcessingTime] = useState(0);
+  const [darkMode, setDarkMode] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [answerType, setAnswerType] = useState("long");
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const speechRef = React.useRef(null);
 
   const handleSubmit = async () => {
-    if (!query.trim()) return;
+    if (!query.trim() || isLoading) return;
 
     setIsLoading(true);
     setError("");
     setHasAnswer(false);
+    setAnswer("");
+    setSources([]);
     const startTime = Date.now();
 
     try {
+      setLoadingStage("Retrieving documents…");
+
       const response = await fetch("http://127.0.0.1:8000/query", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: query }),
+        body: JSON.stringify({ 
+          question: query,
+          answer_type: answerType,
+        }),
       });
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
+      setLoadingStage("Generating answer…");
       const data = await response.json();
 
       setAnswer(data.answer || "No answer returned");
       setSources(data.sources || []);
-      setConfidence(Math.round(data.confidence || 0));
+      setConfidence(
+        typeof data.confidence === "number" ? Math.round(data.confidence) : 60
+      );
       setProcessingTime(((Date.now() - startTime) / 1000).toFixed(2));
       setHasAnswer(true);
+      setLoadingStage("");
     } catch (err) {
       setError("Unable to connect to backend. Please ensure the FastAPI server is running at http://127.0.0.1:8000");
       console.error("API Error:", err);
@@ -57,6 +77,8 @@ export default function LearningAssistant() {
   };
 
   const handleNewQuestion = () => {
+    window.speechSynthesis.cancel();
+    setIsSpeaking(false);
     setQuery("");
     setAnswer("");
     setSources([]);
@@ -65,6 +87,89 @@ export default function LearningAssistant() {
     setIsExpanded(false);
     setError("");
     setProcessingTime(0);
+    setCopied(false);
+  };
+
+  const copyToClipboard = () => {
+    const text = `Question: ${query}\n\nAnswer:\n${answer}\n\nConfidence: ${confidence}%`;
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const exportAsText = () => {
+    const content = `LEARNING ASSISTANT ANSWER REPORT\n${'='.repeat(50)}\n\nQuestion:\n${query}\n\nAnswer:\n${answer}\n\nConfidence Score: ${confidence}%\nProcessing Time: ${processingTime}s\n\nSources: ${sources.length}\n`;
+    const element = document.createElement("a");
+    element.setAttribute("href", "data:text/plain;charset=utf-8," + encodeURIComponent(content));
+    element.setAttribute("download", "answer-report.txt");
+    element.style.display = "none";
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
+  };
+
+  const startVoiceInput = () => {
+    if (!("webkitSpeechRecognition" in window)) {
+      alert("Voice input not supported in this browser");
+      return;
+    }
+
+    const recognition = new window.webkitSpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    recognition.onstart = () => {
+      setLoadingStage("Listening...");
+    };
+
+    recognition.onresult = (event) => {
+      const speechText = event.results[0][0].transcript;
+      setQuery(speechText);
+      setLoadingStage("");
+    };
+
+    recognition.onerror = () => {
+      setLoadingStage("");
+    };
+
+    recognition.start();
+  };
+
+  const cleanTextForSpeech = (text) => {
+    return text
+      .replace(/#{1,6}\s?/g, "")        // remove markdown headings
+      .replace(/\*\*(.*?)\*\*/g, "$1")  // bold
+      .replace(/\*(.*?)\*/g, "$1")      // italics
+      .replace(/`{1,3}(.*?)`{1,3}/g, "$1") // code blocks
+      .replace(/[_>-]/g, " ")           // misc markdown chars
+      .replace(/\n+/g, ". ");           // better pauses
+  };
+
+  const speakAnswer = () => {
+    if (!answer) return;
+
+    window.speechSynthesis.cancel();
+
+    const cleanedAnswer = cleanTextForSpeech(answer);
+
+    const utterance = new SpeechSynthesisUtterance(cleanedAnswer);
+    utterance.lang = "en-US";
+    utterance.rate = 0.95;
+    utterance.pitch = 1;
+    utterance.volume = 1;
+
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+
+    speechRef.current = utterance;
+    setIsSpeaking(true);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const stopSpeaking = () => {
+    window.speechSynthesis.cancel();
+    setIsSpeaking(false);
   };
 
   const getConfidenceColor = (score) => {
@@ -85,8 +190,13 @@ export default function LearningAssistant() {
     return Math.round((total / sources.length) * 100);
   };
 
+  const bgClass = darkMode ? "bg-slate-900" : "bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50";
+  const textClass = darkMode ? "text-slate-100" : "text-slate-900";
+  const cardBgClass = darkMode ? "bg-slate-800/60" : "bg-white/80";
+  const cardBorderClass = darkMode ? "border-slate-700" : "border-white/50";
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+    <div className={`min-h-screen ${bgClass}`}>
       {/* Animated Background */}
       <div className="fixed inset-0 opacity-30 pointer-events-none">
         <div className="absolute top-0 left-0 w-96 h-96 bg-blue-400 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-pulse"></div>
@@ -95,7 +205,7 @@ export default function LearningAssistant() {
       </div>
 
       {/* Header */}
-      <header className="relative backdrop-blur-xl bg-white/70 border-b border-white/20 shadow-lg">
+      <header className={`relative backdrop-blur-xl ${cardBgClass} border-b ${cardBorderClass} shadow-lg`}>
         <div className="max-w-7xl mx-auto px-6 py-5">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
@@ -106,15 +216,17 @@ export default function LearningAssistant() {
                 <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
                   Context-Aware Learning Assistant
                 </h1>
-                <p className="text-sm text-slate-600 font-medium">
+                <p className={`text-sm ${darkMode ? 'text-slate-400' : 'text-slate-600'} font-medium`}>
                   Document-Based Academic Question Answering System
                 </p>
               </div>
             </div>
-            <div className="flex items-center space-x-2 bg-gradient-to-r from-emerald-500 to-green-500 px-4 py-2 rounded-full shadow-lg">
-              <Shield className="w-4 h-4 text-white" />
-              <span className="text-sm font-semibold text-white">RAG System Active</span>
-            </div>
+            <button
+              onClick={() => setDarkMode(!darkMode)}
+              className={`p-2 rounded-full transition-all ${darkMode ? 'bg-slate-700 text-yellow-400' : 'bg-slate-200 text-slate-700'}`}
+            >
+              {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+            </button>
           </div>
         </div>
       </header>
@@ -131,39 +243,46 @@ export default function LearningAssistant() {
                     <Sparkles className="w-4 h-4" />
                     <span className="text-sm font-semibold">Powered by Retrieval-Augmented Generation (RAG)</span>
                   </div>
-                  <h2 className="text-5xl font-bold bg-gradient-to-r from-slate-900 via-blue-800 to-indigo-900 bg-clip-text text-transparent mb-4">
+                  <h2 className={`text-5xl font-bold ${darkMode ? 'text-slate-100' : 'bg-gradient-to-r from-slate-900 via-blue-800 to-indigo-900 bg-clip-text text-transparent'} mb-4`}>
                     What do you want to learn today?
                   </h2>
-                  <p className="text-lg text-slate-600 max-w-2xl mx-auto">
+                  <p className={`text-lg ${darkMode ? 'text-slate-400' : 'text-slate-600'} max-w-2xl mx-auto`}>
                     Ask any computer science question and receive AI-generated answers backed by your course materials
                   </p>
                 </div>
 
                 {/* Error Display */}
                 {error && (
-                  <div className="backdrop-blur-xl bg-red-50 border-2 border-red-200 rounded-2xl p-6 mb-8">
+                  <div className={`backdrop-blur-xl bg-red-50 border-2 border-red-200 rounded-2xl p-6 mb-8 ${darkMode ? 'bg-red-900/30 border-red-800' : ''}`}>
                     <div className="flex items-center space-x-3">
-                      <AlertCircle className="w-6 h-6 text-red-600 flex-shrink-0" />
+                      <AlertCircle className={`w-6 h-6 flex-shrink-0 ${darkMode ? 'text-red-400' : 'text-red-600'}`} />
                       <div>
-                        <h3 className="font-bold text-red-900 mb-1">Connection Error</h3>
-                        <p className="text-sm text-red-700">{error}</p>
+                        <h3 className={`font-bold mb-1 ${darkMode ? 'text-red-300' : 'text-red-900'}`}>Connection Error</h3>
+                        <p className={`text-sm ${darkMode ? 'text-red-200' : 'text-red-700'}`}>{error}</p>
                       </div>
                     </div>
                   </div>
                 )}
 
                 {/* Query Input Card */}
-                <div className="backdrop-blur-xl bg-white/80 rounded-2xl shadow-2xl border border-white/50 p-8 mb-8">
+                <div className={`backdrop-blur-xl ${cardBgClass} rounded-2xl shadow-2xl border ${cardBorderClass} p-8 mb-8`}>
                   <div className="relative">
                     <div className="absolute -top-4 left-6 bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-4 py-1 rounded-full text-sm font-semibold shadow-lg">
                       Your Question
                     </div>
+                    <button
+                      onClick={() => startVoiceInput()}
+                      className={`absolute top-3 right-4 p-2 rounded-full transition-transform hover:scale-110 ${darkMode ? "bg-slate-600 text-white hover:bg-slate-500" : "bg-indigo-600 text-white hover:bg-indigo-700"}`}
+                      title="Voice Input (Click to speak)"
+                    >
+                      🎤
+                    </button>
                     <textarea
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
                       placeholder="e.g., Explain deadlock in Operating System for 13 marks"
                       rows={6}
-                      className="w-full px-6 py-6 text-lg text-slate-900 placeholder-slate-400 border-2 border-slate-200 rounded-xl  focus:outline-none focus:ring-4 focus:ring-blue-500/30 focus:border-blue-500 resize-none transition-all duration-300 bg-white/50"
+                      className={`w-full px-6 py-6 text-lg placeholder-slate-400 border-2 border-slate-200 rounded-xl focus:outline-none focus:ring-4 focus:ring-blue-500/30 focus:border-blue-500 resize-none transition-all duration-300 ${darkMode ? 'bg-slate-700 text-slate-100 border-slate-600' : 'bg-white/50 text-slate-900'}`}
                       disabled={isLoading}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' && e.ctrlKey) {
@@ -171,10 +290,32 @@ export default function LearningAssistant() {
                         }
                       }}
                     />
+
+                    <div className="flex items-center gap-3 mt-4">
+                      {[
+                        { label: "2 Marks", value: "short" },
+                        { label: "5 Marks", value: "medium" },
+                        { label: "13 Marks", value: "long" },
+                      ].map((btn) => (
+                        <button
+                          key={btn.value}
+                          onClick={() => setAnswerType(btn.value)}
+                          className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                            answerType === btn.value
+                              ? "bg-indigo-600 text-white shadow-md"
+                              : darkMode
+                              ? "bg-slate-700 text-slate-300 hover:bg-slate-600"
+                              : "bg-slate-200 text-slate-700 hover:bg-slate-300"
+                          }`}
+                        >
+                          {btn.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   <div className="flex items-center justify-between mt-6">
-                    <div className="flex items-center space-x-4 text-sm text-slate-600">
+                    <div className={`flex items-center space-x-4 text-sm ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>
                       <div className="flex items-center space-x-2">
                         <FileText className="w-4 h-4" />
                         <span>Syllabus-based</span>
@@ -196,7 +337,7 @@ export default function LearningAssistant() {
                         {isLoading ? (
                           <>
                             <div className="w-5 h-5 border-3 border-white/30 border-t-white rounded-full animate-spin"></div>
-                            <span>Analyzing...</span>
+                            <span>{loadingStage}</span>
                           </>
                         ) : (
                           <>
@@ -211,26 +352,26 @@ export default function LearningAssistant() {
 
                 {/* Feature Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="backdrop-blur-xl bg-white/60 rounded-xl p-6 border border-white/50 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
+                  <div className={`backdrop-blur-xl ${cardBgClass} rounded-xl p-6 border ${cardBorderClass} shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1`}>
                     <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-500 rounded-lg flex items-center justify-center mb-4">
                       <Brain className="w-6 h-6 text-white" />
                     </div>
-                    <h3 className="font-bold text-slate-900 mb-2">Context Retrieval</h3>
-                    <p className="text-sm text-slate-600">Advanced RAG system finds relevant course materials</p>
+                    <h3 className={`font-bold mb-2 ${textClass}`}>Context Retrieval</h3>
+                    <p className={`text-sm ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>Advanced RAG system finds relevant course materials</p>
                   </div>
-                  <div className="backdrop-blur-xl bg-white/60 rounded-xl p-6 border border-white/50 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
+                  <div className={`backdrop-blur-xl ${cardBgClass} rounded-xl p-6 border ${cardBorderClass} shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1`}>
                     <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-green-500 rounded-lg flex items-center justify-center mb-4">
                       <TrendingUp className="w-6 h-6 text-white" />
                     </div>
-                    <h3 className="font-bold text-slate-900 mb-2">Confidence Scoring</h3>
-                    <p className="text-sm text-slate-600">Transparent reliability metrics for every answer</p>
+                    <h3 className={`font-bold mb-2 ${textClass}`}>Confidence Scoring</h3>
+                    <p className={`text-sm ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>Transparent reliability metrics for every answer</p>
                   </div>
-                  <div className="backdrop-blur-xl bg-white/60 rounded-xl p-6 border border-white/50 shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
+                  <div className={`backdrop-blur-xl ${cardBgClass} rounded-xl p-6 border ${cardBorderClass} shadow-lg hover:shadow-xl transition-all duration-300 hover:-translate-y-1`}>
                     <div className="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center mb-4">
                       <Shield className="w-6 h-6 text-white" />
                     </div>
-                    <h3 className="font-bold text-slate-900 mb-2">Source Transparency</h3>
-                    <p className="text-sm text-slate-600">View exact sources used to generate answers</p>
+                    <h3 className={`font-bold mb-2 ${textClass}`}>Source Transparency</h3>
+                    <p className={`text-sm ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>View exact sources used to generate answers</p>
                   </div>
                 </div>
               </div>
@@ -238,16 +379,16 @@ export default function LearningAssistant() {
           ) : (
             <div className="space-y-6">
               {/* Question Header */}
-              <div className="backdrop-blur-xl bg-white/80 rounded-2xl shadow-xl border border-white/50 p-6">
+              <div className={`backdrop-blur-xl ${cardBgClass} rounded-2xl shadow-xl border ${cardBorderClass} p-6`}>
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center space-x-2 mb-3">
                       <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-indigo-500 rounded-lg flex items-center justify-center">
                         <Sparkles className="w-4 h-4 text-white" />
                       </div>
-                      <span className="text-sm font-semibold text-slate-600 uppercase tracking-wide">Your Question</span>
+                      <span className={`text-sm font-semibold uppercase tracking-wide ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>Your Question</span>
                     </div>
-                    <p className="text-xl text-slate-900 font-medium">{query}</p>
+                    <p className={`text-xl font-medium ${textClass}`}>{query}</p>
                   </div>
                   <button
                     onClick={handleNewQuestion}
@@ -259,15 +400,15 @@ export default function LearningAssistant() {
               </div>
 
               {/* Confidence Dashboard */}
-              <div className="backdrop-blur-xl bg-gradient-to-br from-white/90 to-white/70 rounded-2xl shadow-xl border border-white/50 p-8">
+              <div className={`backdrop-blur-xl bg-gradient-to-br ${darkMode ? 'from-slate-800/90 to-slate-800/70' : 'from-white/90 to-white/70'} rounded-2xl shadow-xl border ${cardBorderClass} p-8`}>
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center space-x-3">
                     <div className="w-12 h-12 bg-gradient-to-br from-emerald-500 to-green-500 rounded-xl flex items-center justify-center shadow-lg">
                       <TrendingUp className="w-6 h-6 text-white" />
                     </div>
                     <div>
-                      <h3 className="text-lg font-bold text-slate-900">Answer Confidence</h3>
-                      <p className="text-sm text-slate-600">Based on retrieval quality & source relevance</p>
+                      <h3 className={`text-lg font-bold ${textClass}`}>Answer Confidence</h3>
+                      <p className={`text-sm ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>Based on retrieval quality & source relevance</p>
                     </div>
                   </div>
                   <div className="text-right">
@@ -281,7 +422,7 @@ export default function LearningAssistant() {
                 </div>
                 
                 <div className="relative w-full h-4 bg-slate-200 rounded-full overflow-hidden">
-                  <div className="absolute inset-0 bg-gradient-to-r from-slate-200 to-slate-300"></div>
+                  <div className={`absolute inset-0 ${darkMode ? 'bg-gradient-to-r from-slate-700 to-slate-600' : 'bg-gradient-to-r from-slate-200 to-slate-300'}`}></div>
                   <div
                     className={`relative h-full bg-gradient-to-r ${getConfidenceColor(confidence)} shadow-lg transition-all duration-1000 ease-out`}
                     style={{ width: `${confidence}%` }}
@@ -291,61 +432,96 @@ export default function LearningAssistant() {
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
-                  <div className="bg-white/60 rounded-xl p-4 border border-slate-200">
-                    <div className="text-2xl font-bold text-slate-900">{sources.length}</div>
-                    <div className="text-xs text-slate-600 font-medium">Sources Retrieved</div>
+                  <div className={`${darkMode ? 'bg-slate-700/60' : 'bg-white/60'} rounded-xl p-4 ${darkMode ? 'border-slate-600' : 'border-slate-200'} border`}>
+                    <div className={`text-2xl font-bold ${textClass}`}>{sources.length}</div>
+                    <div className={`text-xs font-medium ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>Sources Retrieved</div>
                   </div>
-                  <div className="bg-white/60 rounded-xl p-4 border border-slate-200">
-                    <div className="text-2xl font-bold text-slate-900">{calculateAvgRelevance()}%</div>
-                    <div className="text-xs text-slate-600 font-medium">Avg. Relevance</div>
+                  <div className={`${darkMode ? 'bg-slate-700/60' : 'bg-white/60'} rounded-xl p-4 ${darkMode ? 'border-slate-600' : 'border-slate-200'} border`}>
+                    <div className={`text-2xl font-bold ${textClass}`}>{calculateAvgRelevance()}%</div>
+                    <div className={`text-xs font-medium ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>Avg. Relevance</div>
                   </div>
-                  <div className="bg-white/60 rounded-xl p-4 border border-slate-200">
-                    <div className="text-2xl font-bold text-slate-900">{processingTime}s</div>
-                    <div className="text-xs text-slate-600 font-medium">Processing Time</div>
+                  <div className={`${darkMode ? 'bg-slate-700/60' : 'bg-white/60'} rounded-xl p-4 ${darkMode ? 'border-slate-600' : 'border-slate-200'} border`}>
+                    <div className={`text-2xl font-bold ${textClass}`}>{processingTime}s</div>
+                    <div className={`text-xs font-medium ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>Processing Time</div>
                   </div>
                 </div>
               </div>
 
-              {/* Generated Answer */}
-              <div className="backdrop-blur-xl bg-white/80 rounded-2xl shadow-xl border border-white/50 p-8">
-                <div className="flex items-center space-x-3 mb-6">
-                  <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-500 rounded-lg flex items-center justify-center">
-                    <Brain className="w-5 h-5 text-white" />
+              {/* Generated Answer with Copy/Export */}
+              <div className={`backdrop-blur-xl ${cardBgClass} rounded-2xl shadow-xl border ${cardBorderClass} p-8`}>
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-500 rounded-lg flex items-center justify-center">
+                      <Brain className="w-5 h-5 text-white" />
+                    </div>
+                    <h3 className={`text-xl font-bold ${textClass}`}>Generated Answer</h3>
                   </div>
-                  <h3 className="text-xl font-bold text-slate-900">Generated Answer</h3>
+                  <div className="flex items-center space-x-3">
+                    <button
+                      onClick={copyToClipboard}
+                      className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-all ${copied ? 'bg-emerald-500 text-white' : darkMode ? 'bg-slate-700 text-slate-300 hover:bg-slate-600' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'}`}
+                    >
+                      <Copy className="w-4 h-4" />
+                      <span className="text-sm font-medium">{copied ? 'Copied!' : 'Copy'}</span>
+                    </button>
+                    <button
+                      onClick={exportAsText}
+                      className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-all ${darkMode ? 'bg-slate-700 text-slate-300 hover:bg-slate-600' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'}`}
+                    >
+                      <Download className="w-4 h-4" />
+                      <span className="text-sm font-medium">Export</span>
+                    </button>
+                    {!isSpeaking ? (
+                      <button
+                        onClick={speakAnswer}
+                        className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-all"
+                      >
+                        <span>🔊</span>
+                        <span className="text-sm font-medium">Read</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={stopSpeaking}
+                        className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-all"
+                      >
+                        <span>⏹</span>
+                        <span className="text-sm font-medium">Stop</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
                 
-                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-l-4 border-blue-500 rounded-r-xl p-6">
-                  <div className="text-slate-800 leading-relaxed whitespace-pre-wrap">
+                <div className={`bg-gradient-to-r from-blue-50 to-indigo-50 border-l-4 border-blue-500 rounded-r-xl p-6 ${darkMode ? 'from-blue-900/30 to-indigo-900/30 bg-slate-800' : ''}`}>
+                  <div className={`leading-relaxed whitespace-pre-wrap ${darkMode ? 'text-slate-100' : 'text-slate-800'}`}>
                     {answer}
                   </div>
                 </div>
               </div>
 
               {/* Retrieved Sources */}
-              <div className="backdrop-blur-xl bg-white/80 rounded-2xl shadow-xl border border-white/50 overflow-hidden">
+              <div className={`backdrop-blur-xl ${cardBgClass} rounded-2xl shadow-xl border ${cardBorderClass} overflow-hidden`}>
                 <button
                   onClick={() => setIsExpanded(!isExpanded)}
-                  className="w-full px-8 py-6 flex items-center justify-between hover:bg-white/50 transition-all duration-300 group"
+                  className={`w-full px-8 py-6 flex items-center justify-between transition-all duration-300 group ${darkMode ? 'hover:bg-slate-700/50' : 'hover:bg-white/50'}`}
                 >
                   <div className="flex items-center space-x-3">
                     <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
                       <FileText className="w-5 h-5 text-white" />
                     </div>
                     <div className="text-left">
-                      <h3 className="text-lg font-bold text-slate-900">Retrieved Source Context</h3>
-                      <p className="text-sm text-slate-600">View the exact documents used to generate this answer</p>
+                      <h3 className={`text-lg font-bold ${textClass}`}>Retrieved Source Context</h3>
+                      <p className={`text-sm ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>View the exact documents used to generate this answer</p>
                     </div>
                   </div>
                   <div className={`transform transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}>
-                    <ChevronDown className="w-6 h-6 text-slate-600" />
+                    <ChevronDown className={`w-6 h-6 ${darkMode ? 'text-slate-400' : 'text-slate-600'}`} />
                   </div>
                 </button>
 
                 {isExpanded && (
-                  <div className="px-8 pb-8 pt-4 space-y-4 bg-gradient-to-b from-transparent to-slate-50/50">
+                  <div className={`px-8 pb-8 pt-4 space-y-4 ${darkMode ? 'bg-gradient-to-b from-transparent to-slate-800/50' : 'bg-gradient-to-b from-transparent to-slate-50/50'}`}>
                     {sources.length === 0 ? (
-                      <div className="text-center py-8 text-slate-600">
+                      <div className={`text-center py-8 ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>
                         <FileText className="w-12 h-12 mx-auto mb-3 opacity-50" />
                         <p>No source contexts available</p>
                       </div>
@@ -366,15 +542,15 @@ export default function LearningAssistant() {
                                           : 'border-purple-500';
 
                         return (
-                          <div key={index} className={`group bg-white rounded-xl p-6 border-2 ${borderColor} hover:shadow-lg transition-all duration-300`}>
+                          <div key={index} className={`group ${darkMode ? 'bg-slate-700' : 'bg-white'} rounded-xl p-6 border-2 ${borderColor} hover:shadow-lg transition-all duration-300`}>
                             <div className="flex items-center justify-between mb-4">
                               <div className="flex items-center space-x-3">
                                 <div className={`w-8 h-8 bg-gradient-to-br ${bgColor} rounded-lg flex items-center justify-center`}>
                                   <span className="text-white font-bold text-sm">{index + 1}</span>
                                 </div>
                                 <div>
-                                  <div className="font-bold text-slate-900">{source.source || `Source ${index + 1}`}</div>
-                                  <div className="text-xs text-slate-500">{source.subject || 'Retrieved Context'}</div>
+                                  <div className={`font-bold ${textClass}`}>{source.source || `Source ${index + 1}`}</div>
+                                  <div className={`text-xs ${darkMode ? 'text-slate-500' : 'text-slate-500'}`}>{source.subject || 'Retrieved Context'}</div>
                                 </div>
                               </div>
                               <div className="flex items-center space-x-2">
@@ -383,7 +559,7 @@ export default function LearningAssistant() {
                                 </div>
                               </div>
                             </div>
-                            <p className={`text-sm text-slate-700 leading-relaxed bg-slate-50 rounded-lg p-4 border-l-4 ${accentColor}`}>
+                            <p className={`text-sm leading-relaxed ${darkMode ? 'bg-slate-600 text-slate-100' : 'bg-slate-50 text-slate-700'} rounded-lg p-4 border-l-4 ${accentColor}`}>
                               {source.text || 'No context text available'}
                             </p>
                           </div>
@@ -399,29 +575,11 @@ export default function LearningAssistant() {
       </main>
 
       {/* Footer */}
-      <footer className="relative backdrop-blur-xl bg-white/70 border-t border-white/20 shadow-lg mt-12">
-        <div className="max-w-7xl mx-auto px-6 py-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2 text-sm text-slate-600">
-              <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
-              <span className="font-medium">Context-Aware Learning Assistant</span>
-              <span className="text-slate-400">•</span>
-              <span>Academic RAG System v2.0</span>
-            </div>
-            <div className="flex items-center space-x-6 text-sm text-slate-600">
-              <span className="flex items-center space-x-2">
-                <Shield className="w-4 h-4" />
-                <span>Secure</span>
-              </span>
-              <span className="flex items-center space-x-2">
-                <Zap className="w-4 h-4" />
-                <span>Real-time</span>
-              </span>
-              <span className="flex items-center space-x-2">
-                <Brain className="w-4 h-4" />
-                <span>AI-Powered</span>
-              </span>
-            </div>
+      <footer className={`relative backdrop-blur-xl ${cardBgClass} border-t ${cardBorderClass} shadow-lg mt-12`}>
+        <div className="max-w-7xl mx-auto px-6 py-6 text-center">
+          <div className={`flex items-center justify-center space-x-2 text-sm ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+            <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+            <span className="font-medium">Context-Aware Learning Assistant • RAG Powered</span>
           </div>
         </div>
       </footer>

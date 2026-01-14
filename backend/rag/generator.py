@@ -1,37 +1,41 @@
-import os
-from dotenv import load_dotenv
-from google import genai
+import google.generativeai as genai
+from backend.config import GEMINI_API_KEY
 
-# Load environment variables
-load_dotenv()
+# Configure Gemini
+genai.configure(api_key=GEMINI_API_KEY)
 
-# Create Gemini client
-client = genai.Client(
-    api_key=os.getenv("GEMINI_API_KEY")
-)
-
-MODEL_NAME = "gemini-2.5-flash-lite"
+model = genai.GenerativeModel("gemini-2.5-flash")
 
 
-def generate_answer(question: str, contexts: list) -> str:
+def generate_answer(question: str, context_chunks: list, answer_type: str):
     """
-    Generate an answer using Gemini with retrieved FAISS contexts
+    Generate answer STRICTLY from retrieved context.
+    If context exists, answer MUST be generated.
     """
 
-    if not contexts:
-        context_text = "No relevant context found in documents."
+    if not context_chunks:
+        return "No relevant context was retrieved to answer this question."
+
+    if answer_type == "short":
+        instruction = "Answer briefly in 2-mark exam format."
+    elif answer_type == "medium":
+        instruction = "Answer clearly in 5-mark exam format with headings."
     else:
-        context_text = "\n\n".join(
-            [f"Source {i+1}:\n{c['text']}" for i, c in enumerate(contexts)]
-        )
+        instruction = "Answer in detailed 13-mark exam format with headings and subheadings."
+
+    context_text = "\n\n".join(
+        [f"{i+1}. {chunk['text']}" for i, chunk in enumerate(context_chunks)]
+    )
 
     prompt = f"""
-You are a university-level academic assistant.
+You are a university exam answer generator.
 
-STRICT RULES:
-- Answer ONLY from the given context
-- If not found, say: "Not found in provided materials"
-- Write exam-oriented structured answers
+IMPORTANT RULES:
+- Use ONLY the given context
+- Do NOT use your own knowledge
+- Do NOT say "context not available"
+- Do NOT refuse to answer
+- Write in clear academic language
 
 Context:
 {context_text}
@@ -39,12 +43,9 @@ Context:
 Question:
 {question}
 
-Answer:
+Instruction:
+{instruction}
 """
 
-    response = client.models.generate_content(
-        model=MODEL_NAME,
-        contents=prompt
-    )
-
+    response = model.generate_content(prompt)
     return response.text.strip()

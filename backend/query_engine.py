@@ -1,20 +1,18 @@
-from backend.rag.rag_retriever import retrieve_context
+from backend.rag.rag_retriever import retrieve_chunks
 from backend.rag.generator import generate_answer
 
 
-def answer_question(question: str):
-    """
-    Full RAG pipeline:
-    1. Retrieve from FAISS
-    2. Generate answer with Gemini
-    """
+def answer_question(question: str, answer_type: str):
+    chunks = retrieve_chunks(question)
 
-    retrieved_chunks = retrieve_context(question)
-
-    answer = generate_answer(question, retrieved_chunks)
+    answer = generate_answer(
+        question=question,
+        context_chunks=chunks,
+        answer_type=answer_type
+    )
 
     return {
         "answer": answer,
-        "sources": retrieved_chunks,
-        "confidence": min(95, 60 + len(retrieved_chunks) * 10)
+        "sources": chunks,
+        "confidence": min(90, int(len(chunks) * 20))
     }

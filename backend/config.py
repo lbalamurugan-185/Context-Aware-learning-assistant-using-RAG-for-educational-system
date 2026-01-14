@@ -1,10 +1,4 @@
-import os
-from dotenv import load_dotenv
+# backend/config.py
 
-# Load .env file
-load_dotenv()
-
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-if not GEMINI_API_KEY:
-    raise ValueError("❌ GEMINI_API_KEY not found in .env file")
+GEMINI_API_KEY = "AIzaSyDC4XAurqN82Goqoy-f0BOR08afo3IJMtI"
+MODEL_NAME = "gemini-2.5-flash-lite"
