@@ -201,7 +201,7 @@ This project is ideal for:
 
 ## 👨‍💻 Author
 
-**Bala Murugan L**
+**BalaMurugan L**
 B.Tech – Artificial Intelligence & Data Science
 AI Enthusiast | RAG Systems | Full-Stack AI Projects
 
