@@ -11,8 +11,18 @@ def answer_question(question: str, answer_type: str):
         answer_type=answer_type
     )
 
+    # ✅ Dynamic confidence (NOT hardcoded)
+    if len(chunks) == 0:
+        confidence = 25
+    elif len(chunks) == 1:
+        confidence = 40
+    elif len(chunks) == 2:
+        confidence = 60
+    elif len(chunks) >= 3:
+        confidence = min(90, 60 + len(chunks) * 10)
+
     return {
         "answer": answer,
         "sources": chunks,
-        "confidence": min(90, int(len(chunks) * 20))
+        "confidence": confidence
     }

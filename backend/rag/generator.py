@@ -1,20 +1,20 @@
 import google.generativeai as genai
 from backend.config import GEMINI_API_KEY
 
-# Configure Gemini
 genai.configure(api_key=GEMINI_API_KEY)
-
 model = genai.GenerativeModel("gemini-2.5-flash")
 
 
 def generate_answer(question: str, context_chunks: list, answer_type: str):
     """
     Generate answer STRICTLY from retrieved context.
-    If context exists, answer MUST be generated.
     """
 
     if not context_chunks:
-        return "No relevant context was retrieved to answer this question."
+        return (
+            "The available documents do not contain sufficient information "
+            "to answer this question."
+        )
 
     if answer_type == "short":
         instruction = "Answer briefly in 2-mark exam format."
@@ -28,14 +28,19 @@ def generate_answer(question: str, context_chunks: list, answer_type: str):
     )
 
     prompt = f"""
-You are a university exam answer generator.
+You are a strict academic assistant.
 
-IMPORTANT RULES:
-- Use ONLY the given context
-- Do NOT use your own knowledge
-- Do NOT say "context not available"
-- Do NOT refuse to answer
-- Write in clear academic language
+You MUST answer the question using ONLY the information provided below.
+
+Rules:
+- Do NOT use external or prior knowledge.
+- Do NOT assume missing details.
+- Do NOT use markdown symbols like #.
+- Use plain text and bold headings.
+
+If the context is partial:
+End with this sentence exactly:
+"Due to limited availability of relevant resources, the answer provided is partial."
 
 Context:
 {context_text}

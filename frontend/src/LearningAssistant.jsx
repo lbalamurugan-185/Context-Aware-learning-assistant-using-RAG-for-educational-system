@@ -13,6 +13,8 @@ import {
   Moon,
   Sun,
 } from "lucide-react";
+import { exportAsTxt, exportAsPdf, exportAsDocx } from "./utils/exportUtils";
+import { formatAnswerText, cleanTextForDisplay } from "./utils/textFormatter";
 
 export default function LearningAssistant() {
   const [query, setQuery] = useState("");
@@ -29,7 +31,28 @@ export default function LearningAssistant() {
   const [copied, setCopied] = useState(false);
   const [answerType, setAnswerType] = useState("long");
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [voices, setVoices] = useState([]);
   const speechRef = React.useRef(null);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const exportMenuRef = React.useRef(null);
+
+  React.useEffect(() => {
+    const loadVoices = () => {
+      const availableVoices = window.speechSynthesis.getVoices();
+      setVoices(availableVoices);
+    };
+
+    loadVoices();
+
+    // Some browsers load voices asynchronously
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+  }, []);
+
+  React.useEffect(() => {
+    return () => {
+      window.speechSynthesis.cancel();
+    };
+  }, []);
 
   const handleSubmit = async () => {
     if (!query.trim() || isLoading) return;
@@ -60,7 +83,9 @@ export default function LearningAssistant() {
       setLoadingStage("Generating answer…");
       const data = await response.json();
 
-      setAnswer(data.answer || "No answer returned");
+      const formattedAnswer = formatAnswerText(data.answer || "No answer returned");
+      
+      setAnswer(formattedAnswer);
       setSources(data.sources || []);
       setConfidence(
         typeof data.confidence === "number" ? Math.round(data.confidence) : 60
@@ -91,7 +116,8 @@ export default function LearningAssistant() {
   };
 
   const copyToClipboard = () => {
-    const text = `Question: ${query}\n\nAnswer:\n${answer}\n\nConfidence: ${confidence}%`;
+    const cleanedAnswer = cleanTextForDisplay(answer);
+    const text = `Question: ${query}\n\nAnswer:\n${cleanedAnswer}\n\nConfidence: ${confidence}%`;
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -137,27 +163,33 @@ export default function LearningAssistant() {
   };
 
   const cleanTextForSpeech = (text) => {
-    return text
-      .replace(/#{1,6}\s?/g, "")        // remove markdown headings
-      .replace(/\*\*(.*?)\*\*/g, "$1")  // bold
-      .replace(/\*(.*?)\*/g, "$1")      // italics
-      .replace(/`{1,3}(.*?)`{1,3}/g, "$1") // code blocks
-      .replace(/[_>-]/g, " ")           // misc markdown chars
-      .replace(/\n+/g, ". ");           // better pauses
+    return cleanTextForDisplay(text)
+      .replace(/\n+/g, ". ");  // Add pauses at line breaks
   };
 
   const speakAnswer = () => {
-    if (!answer) return;
+    if (!answer || !answer.trim()) return;
 
     window.speechSynthesis.cancel();
 
     const cleanedAnswer = cleanTextForSpeech(answer);
-
     const utterance = new SpeechSynthesisUtterance(cleanedAnswer);
+
     utterance.lang = "en-US";
     utterance.rate = 0.95;
-    utterance.pitch = 1;
+    utterance.pitch = 1.2;
     utterance.volume = 1;
+
+    // ✅ Reliable female voice selection
+    const femaleVoice =
+      voices.find(v => v.name.includes("Female")) ||
+      voices.find(v => v.name.includes("Zira")) ||
+      voices.find(v => v.name.includes("Samantha")) ||
+      voices.find(v => v.lang === "en-US");
+
+    if (femaleVoice) {
+      utterance.voice = femaleVoice;
+    }
 
     utterance.onend = () => setIsSpeaking(false);
     utterance.onerror = () => setIsSpeaking(false);
@@ -170,6 +202,18 @@ export default function LearningAssistant() {
   const stopSpeaking = () => {
     window.speechSynthesis.cancel();
     setIsSpeaking(false);
+  };
+
+  const handleExport = (format) => {
+    const cleanedAnswer = cleanTextForDisplay(answer);
+    if (format === 'txt') {
+      exportAsTxt(query, cleanedAnswer, confidence, processingTime, sources.length);
+    } else if (format === 'pdf') {
+      exportAsPdf(query, cleanedAnswer, confidence, processingTime, sources.length);
+    } else if (format === 'docx') {
+      exportAsDocx(query, cleanedAnswer, confidence, processingTime, sources.length);
+    }
+    setShowExportMenu(false);
   };
 
   const getConfidenceColor = (score) => {
@@ -464,13 +508,68 @@ export default function LearningAssistant() {
                       <Copy className="w-4 h-4" />
                       <span className="text-sm font-medium">{copied ? 'Copied!' : 'Copy'}</span>
                     </button>
-                    <button
-                      onClick={exportAsText}
-                      className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-all ${darkMode ? 'bg-slate-700 text-slate-300 hover:bg-slate-600' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'}`}
-                    >
-                      <Download className="w-4 h-4" />
-                      <span className="text-sm font-medium">Export</span>
-                    </button>
+
+                    {/* Export Dropdown */}
+                    <div className="relative">
+                      <button
+                        onClick={() => setShowExportMenu(!showExportMenu)}
+                        className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-all ${
+                          darkMode
+                            ? 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                            : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                        }`}
+                      >
+                        <Download className="w-4 h-4" />
+                        <span className="text-sm font-medium">Export</span>
+                        <ChevronDown className={`w-3 h-3 transition-transform ${showExportMenu ? 'rotate-180' : ''}`} />
+                      </button>
+
+                      {showExportMenu && (
+                        <div
+                          ref={exportMenuRef}
+                          className={`absolute right-0 mt-2 w-40 rounded-lg shadow-xl border z-50 ${
+                            darkMode
+                              ? 'bg-slate-700 border-slate-600'
+                              : 'bg-white border-slate-200'
+                          }`}
+                        >
+                          <button
+                            onClick={() => handleExport('txt')}
+                            className={`w-full text-left px-4 py-3 text-sm font-medium transition-all flex items-center space-x-2 ${
+                              darkMode
+                                ? 'hover:bg-slate-600 text-slate-100'
+                                : 'hover:bg-slate-100 text-slate-900'
+                            }`}
+                          >
+                            <FileText className="w-4 h-4" />
+                            <span>Export as TXT</span>
+                          </button>
+                          <button
+                            onClick={() => handleExport('pdf')}
+                            className={`w-full text-left px-4 py-3 text-sm font-medium transition-all flex items-center space-x-2 border-t ${
+                              darkMode
+                                ? 'hover:bg-slate-600 text-slate-100 border-slate-600'
+                                : 'hover:bg-slate-100 text-slate-900 border-slate-200'
+                            }`}
+                          >
+                            <span>📄</span>
+                            <span>Export as PDF</span>
+                          </button>
+                          <button
+                            onClick={() => handleExport('docx')}
+                            className={`w-full text-left px-4 py-3 text-sm font-medium transition-all flex items-center space-x-2 border-t ${
+                              darkMode
+                                ? 'hover:bg-slate-600 text-slate-100 border-slate-600'
+                                : 'hover:bg-slate-100 text-slate-900 border-slate-200'
+                            }`}
+                          >
+                            <span>📝</span>
+                            <span>Export as Word</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
                     {!isSpeaking ? (
                       <button
                         onClick={speakAnswer}
@@ -493,7 +592,21 @@ export default function LearningAssistant() {
                 
                 <div className={`bg-gradient-to-r from-blue-50 to-indigo-50 border-l-4 border-blue-500 rounded-r-xl p-6 ${darkMode ? 'from-blue-900/30 to-indigo-900/30 bg-slate-800' : ''}`}>
                   <div className={`leading-relaxed whitespace-pre-wrap ${darkMode ? 'text-slate-100' : 'text-slate-800'}`}>
-                    {answer}
+                    {answer.split('\n').map((line, index) => {
+                      const boldMatch = line.match(/^\*\*(.*?)\*\*$/);
+                      if (boldMatch) {
+                        return (
+                          <div key={index} className="font-bold text-lg my-2">
+                            {boldMatch[1]}
+                          </div>
+                        );
+                      }
+                      return (
+                        <div key={index}>
+                          {line}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
