@@ -1,4 +1,4 @@
-from backend.rag.rag_retriever import retrieve_chunks
+from rag.rag_retriever import retrieve_chunks
 
 if __name__ == "__main__":
     query = "Explain deadlock in operating system"

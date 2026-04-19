@@ -1,5 +1,5 @@
-from backend.rag.rag_retriever import retrieve_chunks
-from backend.rag.generator import generate_answer
+from rag.rag_retriever import retrieve_chunks
+from rag.generator import generate_answer
 
 
 def answer_question(question: str, answer_type: str):

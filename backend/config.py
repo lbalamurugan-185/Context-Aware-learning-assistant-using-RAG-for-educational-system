@@ -1,4 +1,4 @@
 # backend/config.py
 
-GEMINI_API_KEY = "AIzaSyDstlOFZRCO6knoEJ2qiQdaKNeJ7xEMIM8"
-MODEL_NAME = "gemini-2.5-flash-lite"
+GEMINI_API_KEY = "AIzaSyCHEqLCyk9hj_lChZvxFrhDh2Z3QqroalI"
+MODEL_NAME = "gemini 1.5 flash"

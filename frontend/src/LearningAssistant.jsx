@@ -12,9 +12,13 @@ import {
   Download,
   Moon,
   Sun,
+  LogOut,
+  Clock,
 } from "lucide-react";
 import { exportAsTxt, exportAsPdf, exportAsDocx } from "./utils/exportUtils";
 import { formatAnswerText, cleanTextForDisplay } from "./utils/textFormatter";
+import { logout, getUsername, isGuest, fetchHistory, getToken } from "./services/auth";
+import { useTheme } from "./contexts/ThemeContext";
 
 export default function LearningAssistant() {
   const [query, setQuery] = useState("");
@@ -27,7 +31,7 @@ export default function LearningAssistant() {
   const [hasAnswer, setHasAnswer] = useState(false);
   const [error, setError] = useState("");
   const [processingTime, setProcessingTime] = useState(0);
-  const [darkMode, setDarkMode] = useState(false);
+  const { darkMode, toggleTheme } = useTheme();
   const [copied, setCopied] = useState(false);
   const [answerType, setAnswerType] = useState("long");
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -35,6 +39,18 @@ export default function LearningAssistant() {
   const speechRef = React.useRef(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const exportMenuRef = React.useRef(null);
+  const [history, setHistory] = useState([]);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+
+  React.useEffect(() => {
+    const loadHistory = async () => {
+      if (!isGuest()) {
+        const hist = await fetchHistory();
+        setHistory(hist);
+      }
+    };
+    loadHistory();
+  }, []);
 
   React.useEffect(() => {
     const loadVoices = () => {
@@ -69,7 +85,10 @@ export default function LearningAssistant() {
 
       const response = await fetch("http://127.0.0.1:8000/query", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${getToken() || ''}`
+        },
         body: JSON.stringify({ 
           question: query,
           answer_type: answerType,
@@ -93,6 +112,10 @@ export default function LearningAssistant() {
       setProcessingTime(((Date.now() - startTime) / 1000).toFixed(2));
       setHasAnswer(true);
       setLoadingStage("");
+      
+      if (!isGuest()) {
+        setHistory(prev => [{ question: query, answer: formattedAnswer }, ...prev]);
+      }
     } catch (err) {
       setError("Unable to connect to backend. Please ensure the FastAPI server is running at http://127.0.0.1:8000");
       console.error("API Error:", err);
@@ -248,6 +271,32 @@ export default function LearningAssistant() {
         <div className="absolute bottom-0 left-1/2 w-96 h-96 bg-indigo-400 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-pulse" style={{animationDelay: '4s'}}></div>
       </div>
 
+      {isHistoryOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-sm transition-all" onClick={() => setIsHistoryOpen(false)}>
+          <div className={`w-96 h-full ${darkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} border-l shadow-2xl flex flex-col`} onClick={e => e.stopPropagation()}>
+            <div className={`p-6 border-b ${darkMode ? 'border-slate-700' : 'border-slate-200'} flex justify-between items-center bg-gradient-to-r ${darkMode ? 'from-slate-800 to-indigo-900/30' : 'from-indigo-50 to-white'}`}>
+              <div className="flex items-center space-x-2">
+                <Clock className={`w-5 h-5 ${darkMode ? 'text-indigo-400' : 'text-indigo-600'}`} />
+                <h2 className={`text-xl font-bold ${textClass}`}>Your History</h2>
+              </div>
+              <button onClick={() => setIsHistoryOpen(false)} className={`p-2 rounded-full ${darkMode ? 'hover:bg-slate-700 text-slate-300' : 'hover:bg-slate-100 text-slate-600'}`}>✖</button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {history.length === 0 ? (
+                 <p className={`text-sm text-center mt-10 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>No past queries found.</p>
+              ) : (
+                history.map((item, idx) => (
+                  <div key={idx} className={`p-4 rounded-xl border cursor-pointer hover:-translate-y-1 transition-transform ${darkMode ? 'bg-slate-700/50 border-slate-600 hover:border-indigo-500' : 'bg-slate-50 border-slate-200 hover:border-indigo-400'}`} onClick={() => { setQuery(item.question); setIsHistoryOpen(false); }}>
+                    <h3 className={`font-semibold text-sm line-clamp-2 ${textClass}`}>{item.question}</h3>
+                    <p className={`text-xs mt-2 line-clamp-3 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>{item.answer.replace(/\*\*/g, '')}</p>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className={`relative backdrop-blur-xl ${cardBgClass} border-b ${cardBorderClass} shadow-lg`}>
         <div className="max-w-7xl mx-auto px-6 py-5">
@@ -265,12 +314,34 @@ export default function LearningAssistant() {
                 </p>
               </div>
             </div>
-            <button
-              onClick={() => setDarkMode(!darkMode)}
-              className={`p-2 rounded-full transition-all ${darkMode ? 'bg-slate-700 text-yellow-400' : 'bg-slate-200 text-slate-700'}`}
-            >
-              {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-            </button>
+            <div className="flex items-center space-x-3">
+              {!isGuest() && (
+                <button
+                  onClick={() => setIsHistoryOpen(true)}
+                  className={`p-2 rounded-full transition-all flex items-center space-x-2 px-4 shadow-sm ${darkMode ? 'bg-indigo-500/20 text-indigo-400 hover:bg-indigo-500/30' : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'}`}
+                >
+                  <Clock className="w-4 h-4" />
+                  <span className="text-sm font-semibold hidden sm:inline">History</span>
+                </button>
+              )}
+              <span className={`text-sm font-medium hidden sm:inline ${darkMode ? 'text-slate-300' : 'text-slate-600'}`}>
+                {isGuest() ? 'Guest Session' : `Welcome, ${getUsername() || 'User'}`}
+              </span>
+              <button
+                onClick={logout}
+                className={`p-2 rounded-full transition-all ${darkMode ? 'bg-slate-700 text-rose-400 hover:bg-slate-600' : 'bg-slate-200 text-rose-600 hover:bg-rose-100'}`}
+                title="Logout"
+              >
+                <LogOut className="w-5 h-5" />
+              </button>
+              <button
+                onClick={toggleTheme}
+                className={`p-2 rounded-full transition-all ${darkMode ? 'hover:bg-slate-700 text-yellow-400' : 'hover:bg-slate-100 text-slate-500'}`}
+                title={darkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+              >
+                {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+              </button>
+            </div>
           </div>
         </div>
       </header>

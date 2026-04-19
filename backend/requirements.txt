@@ -4,3 +4,7 @@ faiss-cpu
 sentence-transformers
 google-generativeai
 python-dotenv
+sqlalchemy
+passlib
+bcrypt
+pyjwt
